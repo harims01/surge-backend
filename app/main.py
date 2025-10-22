@@ -1,12 +1,12 @@
 # app/main.py
 from fastapi import FastAPI
-from app.finance import list_tickers, get_quote, get_candles
-from app.news import search_news_for_company
 from fastapi.middleware.cors import CORSMiddleware
+from app.finance import list_tickers, get_quote, get_candles, INDIAN_TICKERS
+from app.news import search_news_for_company
 
 app = FastAPI(title="Surge Backend")
 
-# allow CORS for development
+# ✅ Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,6 +14,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ✅ New Root Route (Now homepage won’t return 404)
+@app.get("/")
+def home():
+    return {
+        "message": "✅ Surge Backend is Running",
+        "routes": [
+            "/tickers",
+            "/quote/{symbol}",
+            "/candles/{symbol}",
+            "/news/{symbol}"
+        ]
+    }
 
 @app.get("/tickers")
 def api_list_tickers():
@@ -29,8 +42,5 @@ def api_candles(symbol: str, period: str = "7d", interval: str = "1h"):
 
 @app.get("/news/{symbol}")
 def api_news(symbol: str, page_size: int = 10):
-    # get company name from symbol mapping if available
-    company = symbol
-    from app.finance import INDIAN_TICKERS
     company = INDIAN_TICKERS.get(symbol, symbol)
     return {"articles": search_news_for_company(company, page_size=page_size)}
