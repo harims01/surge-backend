@@ -1,49 +1,78 @@
 ﻿# app/finance.py
 import yfinance as yf
+from fastapi import FastAPI, HTTPException
 import pandas as pd
-from fastapi import HTTPException
+import requests
 
-# For a simple list of Indian tickers, create a small sample mapping.
-# In production, you'd load a master list (NSE/BSE) from a file.
-INDIAN_TICKERS = {
+app = FastAPI()
+
+# Optionally keep your preferred tickers for homepage
+PREFERRED_TICKERS = {
     "RELIANCE.NS": "Reliance Industries",
     "TCS.NS": "Tata Consultancy Services",
     "INFY.NS": "Infosys",
-    "HDFC.NS": "HDFC Bank",
     "HDFCBANK.NS": "HDFC Bank",
     "ICICIBANK.NS": "ICICI Bank",
     "LT.NS": "Larsen & Toubro",
-    "ITC.NS": "ITC",
-    # add more tickers...
 }
 
-def list_tickers():
-    # return list of dicts: symbol, name
-    return [{"symbol": s, "name": n} for s, n in INDIAN_TICKERS.items()]
+@app.get("/tickers")
+def list_tickers(preferred: bool = True):
+    """
+    Return preferred stocks if preferred=True, else allow search on any stock
+    """
+    if preferred:
+        return [{"symbol": s, "name": n} for s, n in PREFERRED_TICKERS.items()]
+    else:
+        return {"message": "Use /search_ticker?query=XYZ to search any stock"}
 
-def get_quote(symbol):
+@app.get("/search_ticker")
+def search_ticker(query: str):
+    """
+    Search for any stock using yfinance's ticker lookup
+    """
+    try:
+        # yfinance has a built-in tickers search
+        from yfinance import Ticker
+        tk = yf.Ticker(query)
+        info = tk.info
+        return {
+            "symbol": info.get("symbol", query),
+            "name": info.get("shortName", "Unknown"),
+            "exchange": info.get("exchange", "")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Ticker {query} not found")
+
+@app.get("/quote/{symbol}")
+def get_quote(symbol: str):
     try:
         tk = yf.Ticker(symbol)
         info = tk.info
-        # fallback price fields
         price = info.get("regularMarketPrice") or info.get("previousClose")
         change = info.get("regularMarketChange") or 0
         pct = info.get("regularMarketChangePercent") or 0
-        return {"symbol": symbol, "price": price, "change": change, "percent": pct}
+
+        # Fetch latest news (yfinance provides news list)
+        news_list = info.get("news", [])  # list of dicts with title, link, provider
+        news = [{"title": n.get("title"), "link": n.get("link")} for n in news_list] if news_list else []
+
+        return {
+            "symbol": symbol,
+            "price": price,
+            "change": change,
+            "percent": pct,
+            "news": news
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def get_candles(symbol, period="7d", interval="1h"):
-    """
-    returns OHLCV historical data as list of dicts with timestamp & ohlc
-    period examples: '1d','5d','7d','1mo','6mo','1y'
-    interval examples: '1m','2m','5m','15m','1h','1d'
-    """
+@app.get("/candles/{symbol}")
+def get_candles(symbol: str, period: str = "7d", interval: str = "1h"):
     try:
         tk = yf.Ticker(symbol)
         hist = tk.history(period=period, interval=interval, auto_adjust=False)
         hist = hist.reset_index()
-        # convert pandas timestamp to iso
         rows = []
         for _, row in hist.iterrows():
             rows.append({
